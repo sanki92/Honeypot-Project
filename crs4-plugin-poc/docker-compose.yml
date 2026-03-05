@@ -1,0 +1,33 @@
+services:
+  modsec_honeypot:
+    build: .
+    container_name: modsec_honeypot
+    ports:
+      - "9091:8080"
+      - "8000:8000"
+      - "8888:8888"
+    environment:
+      - BLOCKING_PARANOIA=2
+      - ANOMALY_INBOUND=5
+      - ANOMALY_OUTBOUND=4
+      - SERVERNAME=localhost
+      - HONEYPOT_PERSONA=iis # apache | nginx | iis
+    env_file:
+      - ./sample-env
+    volumes:
+      - modsecurity-data:/tmp/modsecurity-data
+      - ./plugins:/etc/modsecurity.d/owasp-crs/plugins
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.9.0
+    container_name: honeypot_logstash
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - logstash-data:/usr/share/logstash/data
+    ports:
+      - "5044:5044"
+
+volumes:
+  modsecurity-data:
+  logstash-data:
