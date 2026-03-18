@@ -1,111 +1,163 @@
-# Honeytrap- CRS 4 Plugin PoC
+# Honeytrap CRS4 Adaptive PoC
 
-Migrates the five existing honeytrap deception rules from `modsecurity-extension.conf` into a proper CRS 4.x plugin (IDs 9,599,000–9,599,999), adds a hot-reload watcher, and swappable server personas for Shodan fingerprint spoofing.
+This is the PoC I built for the OWASP Honeypot Project to make the ModSecurity setup adaptive instead of static.
 
-## Quick start
+I focused on four steps and implemented each one end-to-end.
+
+## What I Built
+
+1. Step 1: Migrated honeytrap logic into CRS4 plugin format
+2. Step 2: Added safe hot-reload for plugin updates
+3. Step 3: Added chameleon personas at server + application level
+4. Step 4: Added a runtime control API for safe operations
+
+## Project Structure
+
+```text
+crs4-plugin-poc/
+  docker-compose.yml
+  Dockerfile
+  modsec_entry.sh
+  plugin-watcher.sh
+  control-api.py
+  persona-switch.sh
+  persona-rotation.sh
+  persona-stimulus.sh
+  persona-mode.sh
+  httpd-vhosts.conf
+  httpd-honeypot.conf
+  include.conf
+  modsecurity-override.conf
+  preprocess-modsec-log.py
+  filebeat.yml
+  sample-env
+
+  plugins/
+    honeytrap-config.conf
+    honeytrap-before.conf
+    honeytrap-after.conf
+
+  personas/
+    apache.conf
+    nginx.conf
+    iis.conf
+
+  persona-app/
+    app.py
+    Dockerfile
+    requirements.txt
+
+  logstash/
+    pipeline/
+      logstash.conf
+```
+
+## Step-by-Step Implementation
+
+### Step 1: CRS4 Plugin Migration
+
+I moved trap rules into CRS4 plugin stages:
+
+- plugins/honeytrap-config.conf
+- plugins/honeytrap-before.conf
+- plugins/honeytrap-after.conf
+
+Implemented trap behavior:
+
+- decoy port detection on 8000 and 8888
+- robots bait path injection with timestamped fake backup URL
+- fake auth challenge and credential-attempt capture
+- fake backup hint injection in login page HTML
+- hidden field tamper detection
+- fake cookie tamper detection
+
+### Step 2: Hot Reload
+
+I added plugin-watcher.sh to watch plugin checksum changes.
+
+On change it does:
+
+1. apachectl configtest
+2. apachectl -k graceful (only if configtest passes)
+
+This avoids full restart loops and prevents applying broken config.
+
+### Step 3: Chameleon Personas
+
+I implemented persona switching at two layers:
+
+- server signature layer via personas/apache.conf, personas/nginx.conf, personas/iis.conf
+- application fingerprint layer via persona backends:
+  - persona_wordpress
+  - persona_joomla
+  - persona_phpmyadmin
+
+persona-switch.sh updates both upstream routing and web signature profile, then validates and applies config safely.
+
+I also added mode scripts:
+
+- persona-rotation.sh for timed switching
+- persona-stimulus.sh for event-driven switching from trap signals
+- persona-mode.sh for start/stop/status control
+
+### Step 4: Runtime Control API
+
+I added control-api.py (container port 8081, exposed as host port 9081) to expose operational controls without shell editing.
+
+Authentication:
+
+- X-API-Token header
+- or Bearer token
+
+Both methods are supported by the API. You can use either one.
+
+API contract:
+
+| Method | Path | Purpose | Request body |
+|---|---|---|---|
+| GET | /api/health | Health check | None |
+| GET | /api/status | Active app/web persona, plugin state, mode state | None |
+| POST | /api/reload | Config test + graceful reload | None |
+| POST | /api/plugin/toggle | Enable or disable plugin | {"enabled": true} or {"enabled": false} |
+| POST | /api/persona/switch | Switch app persona and optional web persona | {"app_persona":"wordpress"} or {"app_persona":"joomla","web_persona":"nginx"} |
+| POST | /api/modes | Start or stop rotation/stimulus modes | {"rotation_enabled": true}, {"stimulus_enabled": false}, or both |
+
+Valid values:
+
+- app_persona: wordpress, joomla, phpmyadmin
+- web_persona: apache, nginx, iis
+- enabled, rotation_enabled, stimulus_enabled: true or false
+
+Safety behavior I implemented:
+
+- reload only after configtest passes
+- plugin toggle rollback if apply fails
+- action logging to /var/log/control-api.log
+
+## Default Runtime Values
+
+From docker-compose.yml:
+
+- ACTIVE_APP_PERSONA=wordpress
+- HONEYPOT_PERSONA=apache
+- PERSONA_ROTATION_ENABLED=false
+- PERSONA_ROTATION_INTERVAL=300
+- PERSONA_ROTATION_LIST=wordpress,joomla,phpmyadmin
+- PERSONA_STIMULI_ENABLED=false
+- PERSONA_STIMULI_COOLDOWN=120
+- CONTROL_API_TOKEN=shanky
+
+## Run
 
 ```bash
 docker compose up --build -d
-docker exec modsec_honeypot apachectl configtest 
+docker exec modsec_honeypot apachectl configtest
 ```
 
----
-
-## Step 1: CRS 4 plugin migration
-
-The original rules were appended directly to `modsecurity.conf` via shell. This moves them into the three-file CRS 4 plugin format that the plugin registry expects:
-
-```
-plugins/
-├── honeytrap-config.conf   ← SecContentInjection, enable/disable toggle
-├── honeytrap-before.conf   ← request-phase detection (traps 1–5)
-└── honeytrap-after.conf    ← response-phase injection (traps 2–5)
-```
-
-**The five traps:**
-
-- **Trap 1**: traffic on ports 8000/8888 → 403
-- **Trap 2**: `robots.txt` gets a fake `Disallow: /db_backup.<epoch>` injected; following that path serves a 401 Basic Auth challenge and captures any submitted credentials
-- **Trap 3**: `login.html` gets `<!-- DEBUG - old login page is login.php.bak -->` injected; requesting that file → 403
-- **Trap 4**: every `<form>` gets a hidden `debug=false` field injected; flipping the value → 403
-- **Trap 5**: any `Set-Cookie` response gets a piggybacked `<name>-user_role=Admin:0` cookie; tampering with it → 403
-
-**Verify:**
+## Quick Verification
 
 ```bash
-curl -i http://localhost:9091/                      # 200
-curl -i http://localhost:8000/                      # 403 trap 1
-curl    http://localhost:9091/robots.txt            # Disallow: /db_backup.<epoch>
-curl -i http://localhost:9091/db_backup.1234567890  # 401 + WWW-Authenticate
-curl    http://localhost:9091/login.html | grep bak # injected HTML comment
-curl -i http://localhost:9091/login.php.bak         # 403 trap 3
-
-# live audit log
-docker exec modsec_honeypot tail -f /var/log/modsec_audit.log
+curl -i http://localhost:9091/
+curl -i http://localhost:8000/
+curl -H "X-API-Token: shanky" http://localhost:9081/api/status
 ```
-
----
-
-## Step 2: Plugin hot-reload
-
-`plugin-watcher.sh` runs in the background and polls the plugins directory every 5 seconds using `md5sum`. When anything changes it runs `apachectl configtest` and if the config is valid, does a `graceful` restart. Bad configs are skipped and logged.
-
-The `plugins/` directory is bind-mounted from the host, so editing a plugin `.conf` file locally is enough to trigger a reload, no container restart needed.
-
-**Verify:**
-
-```bash
-# modify any plugin file (from inside the container or on the host)
-docker exec modsec_honeypot sh -c "echo '# test' >> /etc/modsecurity.d/owasp-crs/plugins/honeytrap-config.conf"
-
-docker logs modsec_honeypot 2>&1 | grep plugin-watcher
-# → [plugin-watcher] reloaded apache
-
-# apache is still serving
-curl -i http://localhost:9091/  # still 200
-```
-
----
-
-## Step 3: Chameleon personas
-
-Set `HONEYPOT_PERSONA` in `docker-compose.yml`. At startup, `modsec_entry.sh` copies the matching persona file into place, which sets `SecServerSignature`, extra headers, and custom error pages.
-
-| Persona | `Server` | Extra headers | Error page style |
-|---------|----------|---------------|-----------------|
-| `apache` (default) | `Apache` | — | standard |
-| `nginx` | `nginx/1.24.0` | `X-Powered-By: PHP/8.2.15` | nginx |
-| `iis` | `Microsoft-IIS/10.0` | `X-Powered-By: ASP.NET`, `X-AspNet-Version: 4.0.30319` | IIS |
-
-```yaml
-environment:
-  - HONEYPOT_PERSONA=nginx   # apache | nginx | iis
-```
-
-**Verify:**
-
-```bash
-# after docker compose up -d with HONEYPOT_PERSONA=nginx
-curl -I http://localhost:9091/
-curl http://localhost:8000/
-
-
-# switch to iis: change HONEYPOT_PERSONA=iis in docker-compose.yml, then:
-docker compose down && docker compose up -d
-curl -I http://localhost:9091/
-```
-
----
-
-## Disabling the plugin
-
-Uncomment in `plugins/honeytrap-config.conf`, then let the watcher pick it up (or run `apachectl -k graceful`):
-
-```apache
-SecAction "id:9599010,phase:1,pass,nolog,setvar:'tx.honeytrap-plugin_enabled=0'"
-```
-
-## What's next
-
-- Step 4: REST API for runtime rule management
-
