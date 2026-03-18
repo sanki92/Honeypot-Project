@@ -2,21 +2,62 @@ services:
   modsec_honeypot:
     build: .
     container_name: modsec_honeypot
+    depends_on:
+      - persona_wordpress
+      - persona_joomla
+      - persona_phpmyadmin
     ports:
       - "9091:8080"
       - "8000:8000"
       - "8888:8888"
+      - "9081:8081"
     environment:
       - BLOCKING_PARANOIA=2
       - ANOMALY_INBOUND=5
       - ANOMALY_OUTBOUND=4
       - SERVERNAME=localhost
-      - HONEYPOT_PERSONA=iis # apache | nginx | iis
+      - ACTIVE_APP_PERSONA=wordpress
+      - HONEYPOT_PERSONA=apache
+      - PERSONA_ROTATION_ENABLED=false
+      - PERSONA_ROTATION_INTERVAL=300
+      - PERSONA_ROTATION_LIST=wordpress,joomla,phpmyadmin
+      - PERSONA_STIMULI_ENABLED=false
+      - PERSONA_STIMULI_COOLDOWN=120
+      - CONTROL_API_TOKEN=shanky
+      - CONTROL_API_HOST=0.0.0.0
+      - CONTROL_API_PORT=8081
     env_file:
       - ./sample-env
     volumes:
       - modsecurity-data:/tmp/modsecurity-data
       - ./plugins:/etc/modsecurity.d/owasp-crs/plugins
+    restart: unless-stopped
+
+  persona_wordpress:
+    build: ./persona-app
+    container_name: persona_wordpress
+    environment:
+      - APP_PERSONA=wordpress
+      - APP_VERSION=5.8.4
+      - PORT=5000
+    restart: unless-stopped
+
+  persona_joomla:
+    build: ./persona-app
+    container_name: persona_joomla
+    environment:
+      - APP_PERSONA=joomla
+      - APP_VERSION=3.9.28
+      - PORT=5000
+    restart: unless-stopped
+
+  persona_phpmyadmin:
+    build: ./persona-app
+    container_name: persona_phpmyadmin
+    environment:
+      - APP_PERSONA=phpmyadmin
+      - APP_VERSION=4.9.11
+      - PORT=5000
     restart: unless-stopped
 
   logstash:

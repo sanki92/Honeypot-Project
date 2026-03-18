@@ -1,4 +1,6 @@
 #!/bin/sh
+set -eu
+
 PLUGIN_DIR=/etc/modsecurity.d/owasp-crs/plugins
 HASH_FILE=/tmp/.plugin-hash
 

@@ -36,13 +36,20 @@ COPY httpd-vhosts.conf /usr/local/apache2/conf/extra/httpd-vhosts.conf
 
 COPY personas/ /etc/honeypot/personas/
 RUN echo 'ServerTokens Full' > /usr/local/apache2/conf/extra/httpd-persona.conf
+RUN echo 'ProxyPass / http://persona_wordpress:5000/' > /usr/local/apache2/conf/extra/honeypot-upstream.conf
+RUN echo 'ProxyPassReverse / http://persona_wordpress:5000/' >> /usr/local/apache2/conf/extra/honeypot-upstream.conf
 
 COPY plugin-watcher.sh /opt/honeypot/plugin-watcher.sh
-RUN chmod +x /opt/honeypot/plugin-watcher.sh
+COPY persona-switch.sh /opt/honeypot/persona-switch.sh
+COPY persona-rotation.sh /opt/honeypot/persona-rotation.sh
+COPY persona-stimulus.sh /opt/honeypot/persona-stimulus.sh
+COPY persona-mode.sh /opt/honeypot/persona-mode.sh
+COPY control-api.py /opt/honeypot/control-api.py
+RUN chmod +x /opt/honeypot/plugin-watcher.sh /opt/honeypot/persona-switch.sh /opt/honeypot/persona-rotation.sh /opt/honeypot/persona-stimulus.sh /opt/honeypot/persona-mode.sh /opt/honeypot/control-api.py
 
 COPY modsec_entry.sh /modsec_entry.sh
 RUN chmod +x /modsec_entry.sh
 
-EXPOSE 80/tcp 8080/tcp 8000/tcp 8888/tcp
+EXPOSE 80/tcp 8080/tcp 8000/tcp 8888/tcp 8081/tcp
 
 CMD ["/modsec_entry.sh"]
