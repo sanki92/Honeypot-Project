@@ -13,9 +13,9 @@ tail -Fn0 "$LOG_FILE" | while IFS= read -r line; do
     TARGET=""
 
     case "$line" in
-        *"Fake HTML Comment Data Used"*) TARGET="wordpress" ;;
-        *"Hidden Form Field Manipulated"*) TARGET="joomla" ;;
-        *"Fake Cookie Data Manipulation"*) TARGET="phpmyadmin" ;;
+        *"Fake HTML Comment Data Used"*) TARGET="joomla" ;;
+        *"Hidden Form Field Manipulated"*) TARGET="phpmyadmin" ;;
+        *"Fake Cookie Data Manipulation"*) TARGET="wordpress" ;;
     esac
 
     if [ -z "$TARGET" ]; then
