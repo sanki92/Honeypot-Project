@@ -19,6 +19,9 @@ API_LOG = Path("/var/log/control-api.log")
 DISABLE_RULE = "SecAction \"id:9599010,phase:1,pass,nolog,setvar:'tx.honeytrap-plugin_enabled=0'\""
 DISABLE_RULE_COMMENT = f"# {DISABLE_RULE}"
 
+VALID_APP_PERSONAS = {"wordpress", "joomla", "phpmyadmin"}
+VALID_WEB_PERSONAS = {"apache", "nginx", "iis"}
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -255,9 +258,16 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(app_persona, str) or app_persona == "":
                 self._json(400, {"ok": False, "error": "app_persona is required"})
                 return
-            if web_persona is not None and not isinstance(web_persona, str):
-                self._json(400, {"ok": False, "error": "web_persona must be string"})
+            if app_persona not in VALID_APP_PERSONAS:
+                self._json(400, {"ok": False, "error": f"app_persona must be one of {sorted(VALID_APP_PERSONAS)}"})
                 return
+            if web_persona is not None:
+                if not isinstance(web_persona, str):
+                    self._json(400, {"ok": False, "error": "web_persona must be string"})
+                    return
+                if web_persona not in VALID_WEB_PERSONAS:
+                    self._json(400, {"ok": False, "error": f"web_persona must be one of {sorted(VALID_WEB_PERSONAS)}"})
+                    return
             ok, msg = switch_persona(app_persona, web_persona)
             log_action("persona-switch", {"ok": ok, "app": app_persona, "web": web_persona, "msg": msg})
             self._json(200 if ok else 400, {"ok": ok, "message": msg})
