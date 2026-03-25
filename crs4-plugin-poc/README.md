@@ -161,3 +161,13 @@ curl -i http://localhost:9091/
 curl -i http://localhost:8000/
 curl -H "X-API-Token: shanky" http://localhost:9081/api/status
 ```
+
+## Smoke Tests
+
+```bash
+./smoke-test.sh
+```
+
+Uses the default token (`shanky`). To override: `./smoke-test.sh <your-token>`
+
+Runs automated checks against web endpoints, control API, and persona backends.
