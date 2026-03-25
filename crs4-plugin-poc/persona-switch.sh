@@ -37,9 +37,16 @@ if [ ! -f "/etc/honeypot/personas/${WEB_PERSONA}.conf" ]; then
     exit 1
 fi
 
-cp "/etc/honeypot/personas/${WEB_PERSONA}.conf" /usr/local/apache2/conf/extra/httpd-persona.conf
+PERSONA_CONF=/usr/local/apache2/conf/extra/httpd-persona.conf
+UPSTREAM_CONF=/usr/local/apache2/conf/extra/honeypot-upstream.conf
 
-cat > /usr/local/apache2/conf/extra/honeypot-upstream.conf <<EOF
+# Save originals for rollback
+cp "$PERSONA_CONF" "${PERSONA_CONF}.bak" 2>/dev/null || true
+cp "$UPSTREAM_CONF" "${UPSTREAM_CONF}.bak" 2>/dev/null || true
+
+cp "/etc/honeypot/personas/${WEB_PERSONA}.conf" "$PERSONA_CONF"
+
+cat > "$UPSTREAM_CONF" <<EOF
 ProxyPass / ${BACKEND}/ retry=0 connectiontimeout=5 timeout=30
 ProxyPassReverse / ${BACKEND}/
 EOF
@@ -49,7 +56,11 @@ echo "[persona-switch] app=${APP_PERSONA} web=${WEB_PERSONA}" >&2
 if apachectl configtest >/dev/null 2>&1; then
     apachectl -k graceful >/dev/null 2>&1 || true
     echo "$APP_PERSONA" > /tmp/active-app-persona
+    rm -f "${PERSONA_CONF}.bak" "${UPSTREAM_CONF}.bak"
 else
-    echo "[persona-switch] configtest failed" >&2
+    echo "[persona-switch] configtest failed, rolling back" >&2
+    cp "${PERSONA_CONF}.bak" "$PERSONA_CONF" 2>/dev/null || true
+    cp "${UPSTREAM_CONF}.bak" "$UPSTREAM_CONF" 2>/dev/null || true
+    rm -f "${PERSONA_CONF}.bak" "${UPSTREAM_CONF}.bak"
     exit 1
 fi
